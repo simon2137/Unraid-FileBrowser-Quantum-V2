@@ -47,10 +47,10 @@ After installation, go to **Settings -> Utilities -> FileBrowser Quantum** to co
 
 ### Internal/External URL split (reverse proxy)
 
-The FB tab picks the FileBrowser URL automatically based on how you access the Unraid WebUI. Configure both under the `server` node of `config.yaml`:
+The FB tab picks the FileBrowser URL automatically based on how you access the Unraid WebUI. Configure both under the `http:` node of `config.yaml`:
 
 ```yaml
-server:
+http:
   # Internal URL used when accessing via LAN IP; empty = auto http://<host>:<port>
   internalUrl: ""
   # External URL used when accessing via domain, e.g. https://filebrowser.example.com:8888
@@ -59,6 +59,12 @@ server:
 
 - Accessing Unraid by LAN IP (e.g. `http://192.168.1.10/`) loads FileBrowser via `internalUrl`.
 - Accessing by domain (e.g. `https://nas.example.com/`) loads it via `externalUrl` (an HTTPS reverse proxy is required, otherwise the browser blocks mixed content).
+
+### FileBrowser Quantum v2
+
+- The plugin now targets upstream v2 (installs v2.0.1-stable by default; beta branch tracks v2.1.x). v2 replaces BoltDB with SQLite and restructures the config (`port/baseURL/internalUrl/externalUrl` moved under the `http:` node).
+- **Upgrading from an older install**: the installer converts v1 configs automatically (preserving port and internal/external URLs) and migrates the old `database.db` into SQLite; backups are kept as `database.db.old` and `config.yaml.v1.bak`.
+- The v2 CLI password-reset command is `filebrowser_quantum user set admin --password 'newpass'` (v1 used `users update`).
 
 ## THANKS
 [FileBrowser Quantum](https://github.com/gtsteffaniak/filebrowser)

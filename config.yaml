@@ -1,11 +1,17 @@
-server:
+# FileBrowser Quantum v2 配置模板（Unraid 插件默认配置）
+# 文档: https://filebrowserquantum.com/en/docs/
+http:
   port: 8081
   baseURL: "/"
   # 内网直连地址：通过内网 IP 访问 FB 标签页时使用；留空 = 自动使用 http://<访问主机>:<端口>
   internalUrl: ""
-  # 外网反代地址：通过域名/公网访问 FB 标签页时使用，如 https://filebrowser.example.com:8888
+  # 外网反代地址：通过域名/公网访问时使用，如 https://filebrowser.example.com:8888
   externalUrl: ""
-  database: "/boot/config/plugins/filebrowser_quantum/database.db"
+  # 位于反向代理之后时建议开启，使 Cookie/客户端 IP/跳转正确解析
+  trustProxyHeaders: false
+server:
+  database:
+    path: "/boot/config/plugins/filebrowser_quantum/filebrowser.sqlite"
   logging:
     - levels: "info|debug|warning|error"
       output: "/var/log/filebrowser_quantum.log"
@@ -13,32 +19,25 @@ server:
     - path: "/"
       name: "Root Dir"
       config:
-        conditionals:
-          ignoreHidden: true
-          rules:
-            - folderPath: "/bin"
-            - folderPath: "/boot"
-            - folderPath: "/dev"
-            - folderPath: "/etc"
-            - folderPath: "/home"
-            - folderPath: "/hugetlbfs"
-            - folderPath: "/lib"
-            - folderPath: "/lib64"
-            - folderPath: "/opt"
-            - folderPath: "/proc"
-            - folderPath: "/root"
-            - folderPath: "/run"
-            - folderPath: "/sbin"
-            - folderPath: "/sys"
-            - folderPath: "/tmp"
-            - folderPath: "/usr"
-            - folderPath: "/var"
-  filesystem:
-    createFilePermission: "777"
-    createDirectoryPermission: "777"
-userDefaults:
-  darkMode: true
-  permissions:
-    admin: true
-    modify: true
-    download: true
+        rules:
+          - folderPath: "/bin"
+          - folderPath: "/boot"
+          - folderPath: "/dev"
+          - folderPath: "/etc"
+          - folderPath: "/home"
+          - folderPath: "/hugetlbfs"
+          - folderPath: "/lib"
+          - folderPath: "/lib64"
+          - folderPath: "/opt"
+          - folderPath: "/proc"
+          - folderPath: "/root"
+          - folderPath: "/run"
+          - folderPath: "/sbin"
+          - folderPath: "/sys"
+          - folderPath: "/tmp"
+          - folderPath: "/usr"
+          - folderPath: "/var"
+auth:
+  methods:
+    password:
+      enabled: true

@@ -1,8 +1,8 @@
 <?xml version='1.0' standalone='yes'?>
 <!DOCTYPE PLUGIN [
   <!ENTITY branch "main">
-  <!ENTITY version "2026.10.14">
-  <!ENTITY bundleversion "2026.10.14">
+  <!ENTITY version "2026.10.14.1">
+  <!ENTITY bundleversion "2026.10.14.1">
   <!ENTITY author "insomnia417">
   <!ENTITY name "filebrowser_quantum">
   <!ENTITY launch "Settings/filebrowser_quantum">
@@ -16,7 +16,8 @@
 <CHANGES>
 ### &name;
 #### 🆕 最新更新 (v&version;)
-- **内外网分流**：FB 标签页适配反向代理，支持 config.yaml 中的 `server.internalUrl` / `server.externalUrl`，内网 IP 访问走直连，域名访问走反代地址。
+- **内核升级**：适配 FileBrowser Quantum v2（当前目标 v2.0.1-stable / v2.1.2-beta），安装时自动完成 v1→v2 配置转换与 BoltDB→SQLite 数据库迁移，保留端口与内外网地址配置。
+- **内外网分流**：FB 标签页适配反向代理，支持 config.yaml 中的 `internalUrl` / `externalUrl`（已移至 `http:` 段），内网 IP 访问走直连，域名访问走反代地址。
 
 #### 📜 历史改进
 - **量子同步**：通过端口监听探测技术，状态灯与实时日志实现物理级同步，消除等待感。
@@ -95,10 +96,21 @@
             rm -f "$INSTALL_PATH/latest"
         fi
 
-        # 1. 寻找本地缓存
+        # 1. 寻找本地缓存（仅接受 v2.x 缓存，v1 主程序与 v2 配置不兼容）
         LOCAL_BINARY=$(ls -t $INSTALL_PATH/${NAME}-v* 2>/dev/null | head -n 1)
-
         if [ -f "$LOCAL_BINARY" ]; then
+            CACHE_VER=$(basename "$LOCAL_BINARY" | sed "s/^${NAME}-//")
+            case "$CACHE_VER" in
+                v2.*) ;;
+                *)
+                    echo "本地缓存主程序 ($CACHE_VER) 与 v2 配置不兼容，将重新下载..."
+                    rm -f "$LOCAL_BINARY"
+                    LOCAL_BINARY=""
+                    ;;
+            esac
+        fi
+
+        if [ -n "$LOCAL_BINARY" ]; then
             echo "检测到本地主程序缓存: $(basename $LOCAL_BINARY)，跳过联网检测。"
             cp "$LOCAL_BINARY" /usr/sbin/filebrowser_quantumorig.new
             mv /usr/sbin/filebrowser_quantumorig.new /usr/sbin/filebrowser_quantumorig
@@ -110,7 +122,7 @@
             
             if [ -z "$TAG_LIST" ]; then
                 echo "警告：无法连接 GitHub API，将使用保底版本号..."
-                current_version="v1.1.0-stable"
+                current_version="v2.0.1-stable"
             else
                 # 从 settings.cfg 读取分支
                 CURRENT_BRANCH=$(get_setting "filebrowser_BRANCH" "stable")
@@ -118,11 +130,11 @@
                 if [ "$CURRENT_BRANCH" == "beta" ]; then
                     current_version=$(echo "$TAG_LIST" | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+-beta' | head -n 1)
                     echo "Beta mode detected. Target version: $current_version"
-                    [ -z "$current_version" ] && current_version="v1.1.6-beta"
+                    [ -z "$current_version" ] && current_version="v2.1.2-beta"
                 else
                     current_version=$(echo "$TAG_LIST" | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+-stable' | head -n 1)
                     echo "检测到最新稳定版号为: $current_version"
-                    [ -z "$current_version" ] && current_version="v1.1.0-stable"
+                    [ -z "$current_version" ] && current_version="v2.0.1-stable"
                 fi
             fi
 
@@ -161,18 +173,45 @@
             if ! curl -fsSL --connect-timeout 10 --retry 3 -o "/boot/config/plugins/${NAME}/config.yaml" "https://raw.githubusercontent.com/insomnia417/Unraid-FileBrowser_Quantum-Plugins/${BRANCH}/config.yaml"; then
                 echo "下载失败，正在生成本地默认配置..."
 cat <<EOF > "/boot/config/plugins/${NAME}/config.yaml"
-server:
+http:
   port: 8081
   baseURL: "/"
+  # 内网直连地址：通过内网 IP 访问 FB 标签页时使用；留空 = 自动使用 http://<访问主机>:<端口>
   internalUrl: ""
+  # 外网反代地址：通过域名/公网访问时使用，如 https://filebrowser.example.com:8888
   externalUrl: ""
-  database: "/boot/config/plugins/filebrowser_quantum/database.db"
+server:
+  database:
+    path: "/boot/config/plugins/filebrowser_quantum/filebrowser.sqlite"
   logging:
     - levels: "info|debug|warning|error"
       output: "/var/log/filebrowser_quantum.log"
   sources:
     - path: "/"
       name: "Root Dir"
+      config:
+        rules:
+          - folderPath: "/bin"
+          - folderPath: "/boot"
+          - folderPath: "/dev"
+          - folderPath: "/etc"
+          - folderPath: "/home"
+          - folderPath: "/hugetlbfs"
+          - folderPath: "/lib"
+          - folderPath: "/lib64"
+          - folderPath: "/opt"
+          - folderPath: "/proc"
+          - folderPath: "/root"
+          - folderPath: "/run"
+          - folderPath: "/sbin"
+          - folderPath: "/sys"
+          - folderPath: "/tmp"
+          - folderPath: "/usr"
+          - folderPath: "/var"
+auth:
+  methods:
+    password:
+      enabled: true
 EOF
             fi
         fi
@@ -190,6 +229,9 @@ EOF
         if [ -n "$INSTALLED_BINARY" ]; then
             find "$INSTALL_PATH" -name "${NAME}-v*" ! -name "$(basename "$INSTALLED_BINARY")" -delete
         fi
+
+        # v1 → v2 配置/数据库迁移（幂等，已是 v2 或无配置则直接跳过）
+        "$DAEMON_SCRIPT" "MIGRATE_CONFIG"
 
         # 根据配置状态启动服务
         ENABLE_STATE=$(get_setting "filebrowser_ENABLED" "false")

@@ -54,6 +54,13 @@ if [ "${1}" == "true" ] || [ "${1}" == "START_ONLY" ]; then
             sleep 7
             if pgrep -f "$(basename "$BINARY")" > /dev/null 2>&1 ; then
                 echo "FileBrowser 启动成功且运行稳定！" | tee >(logger -t "$TAG")
+                # v2 迁移收尾：SQLite 已生成则移除一次性 migrateFrom，
+                # 避免旧 BoltDB 备份被删除后 v2 拒绝启动
+                SQLDB="$PLG_PATH/filebrowser.sqlite"
+                if [ -s "$SQLDB" ] && grep -q '^    migrateFrom:' "$CONFIG_YAML" 2>/dev/null; then
+                    sed -i '/^    migrateFrom:/d' "$CONFIG_YAML"
+                    echo "数据库迁移已完成，已自动移除 config.yaml 中的 migrateFrom" | tee >(logger -t "$TAG")
+                fi
                 exit 0
             else
                 echo "警告：进程在启动初期崩坏，请检查配置！" | tee >(logger -t "$TAG")
@@ -92,7 +99,9 @@ elif [ "${1}" == "GET_PORT" ]; then
 # --- 4. 获取本地版本号 ---
 elif [ "${1}" == "GET_LOCAL_VER" ]; then
     if [ -f "$BINARY" ]; then
-        "$BINARY" version | grep "Version" | cut -d':' -f2 | tr -d ' ' 2>/dev/null
+        # v1/v2 版本输出格式不同，统一用正则提取 vX.Y.Z(-后缀)
+        VER=$("$BINARY" version 2>/dev/null | grep -oiE 'v[0-9]+\.[0-9]+\.[0-9]+(-[a-z0-9.]+)?' | head -n 1)
+        echo "${VER:-unknown}"
     else
         echo "not installed"
     fi
@@ -164,26 +173,107 @@ elif [ "${1}" == "RESTART" ]; then
 elif [ "${1}" == "VALIDATE" ]; then
     TEST_CONFIG="${2:-$CONFIG_YAML}"
     if [ ! -f "$TEST_CONFIG" ]; then echo "Config file not found"; exit 1; fi
-    
-    # 建立深度隔离的校验环境
-    VAL_TMP="/tmp/fb_val_$(date +%s).yaml"
-    cp "$TEST_CONFIG" "$VAL_TMP"
-    
-    # 1. 端口隔离：强制随机端口
-    sed -i 's/\(port:[[:space:]]*\).*/\10/' "$VAL_TMP"
-    # 2. 日志隔离：强制定向到 null
-    sed -i 's/\(output:[[:space:]]*\).*/\1"\/dev\/null"/' "$VAL_TMP"
-    # 3. 数据库隔离 (CRITICAL)：强制使用临时 dummy 库，绝对不准碰生产库
-    sed -i 's/\(database:[[:space:]]*\).*/\1"\/tmp\/fb_val_dummy.db"/' "$VAL_TMP"
 
-    # 执行真理校验
-    VAL_OUT=$(timeout 2s "$BINARY" -c "$VAL_TMP" 2>&1)
+    # 建立深度隔离的校验环境：
+    #   1. 端口强制为 0   2. 日志定向 /dev/null
+    #   3. 数据库强制 dummy 且清空 migrateFrom（v2 的 database 是 server.database 子块，用 awk 做块内替换）
+    VAL_TMP="/tmp/fb_val_$(date +%s).yaml"
+    awk '
+      /^  database:/ { indb=1; print; next }
+      indb && /^    path:/        { print "    path: \"/tmp/fb_val_dummy.db\""; next }
+      indb && /^    migrateFrom:/ { print "    migrateFrom: \"\""; next }
+      indb && /^[^ ]/             { indb=0 }
+      { print }
+    ' "$TEST_CONFIG" > "$VAL_TMP"
+    sed -i 's/\(port:[[:space:]]*\).*/\10/' "$VAL_TMP"
+    sed -i 's/\(output:[[:space:]]*\).*/\1"\/dev\/null"/' "$VAL_TMP"
+
+    # 执行真理校验（v2 校验失败时延迟 5 秒才输出 FATAL，超时放宽到 15 秒）
+    VAL_OUT=$(timeout 15s "$BINARY" -c "$VAL_TMP" 2>&1)
     rm -f "$VAL_TMP"
 
     if echo "$VAL_OUT" | grep -Ei "FATAL|ERROR" > /dev/null; then
         echo "$VAL_OUT" | sed 's/^[0-9\/ :]* //'
         exit 1
     fi
+    exit 0
+
+# --- 11. v1 → v2 配置/数据库迁移（幂等：无 v1 配置则直接跳过） ---
+elif [ "${1}" == "MIGRATE_CONFIG" ]; then
+    CFG="$CONFIG_YAML"
+    SQLDB="$PLG_PATH/filebrowser.sqlite"
+    [ ! -f "$CFG" ] && exit 0
+
+    # v1 schema 特征：server 段下的 database 是带绝对路径的标量
+    # （v2 的 database 是无值的父键 + 子块；注意 v2 的 port 也在 2 空格缩进下，不能用作判据）
+    if ! grep -qE "^  database:[[:space:]]+[\"']?/" "$CFG"; then
+        exit 0
+    fi
+    echo "检测到 v1 版配置，正在转换为 v2 结构..."
+
+    # 提取 v1 键值（去除引号与首尾空格）
+    pick() {
+        grep -E "^  $1:" "$CFG" | head -n 1 | cut -d: -f2- \
+          | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' \
+                -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'\$//"
+    }
+    PORT=$(pick port);    [ -z "$PORT" ] && PORT="8081"
+    BASE=$(pick baseURL); [ -z "$BASE" ] && BASE="/"
+    INTURL=$(pick internalUrl)
+    EXTURL=$(pick externalUrl)
+    DB=$(pick database)
+
+    # 旧 BoltDB 更名 + 一次性迁移标记（SQLite 已有数据则跳过，保证幂等）
+    MIGLINE=""
+    if [ -n "$DB" ] && [ -f "$DB" ] && [ ! -s "$SQLDB" ]; then
+        if mv "$DB" "$DB.old" 2>/dev/null; then
+            MIGLINE="    migrateFrom: \"$DB.old\""
+            echo "旧数据库已更名为 $(basename "$DB").old，首次启动时自动导入 SQLite"
+        fi
+    fi
+
+    [ -f "$CFG.v1.bak" ] || cp "$CFG" "$CFG.v1.bak"
+    cat > "$CFG" <<EOF
+http:
+  port: $PORT
+  baseURL: "$BASE"
+  internalUrl: "$INTURL"
+  externalUrl: "$EXTURL"
+server:
+  database:
+    path: "$SQLDB"
+$MIGLINE
+  logging:
+    - levels: "info|debug|warning|error"
+      output: "/var/log/filebrowser_quantum.log"
+  sources:
+    - path: "/"
+      name: "Root Dir"
+      config:
+        rules:
+          - folderPath: "/bin"
+          - folderPath: "/boot"
+          - folderPath: "/dev"
+          - folderPath: "/etc"
+          - folderPath: "/home"
+          - folderPath: "/hugetlbfs"
+          - folderPath: "/lib"
+          - folderPath: "/lib64"
+          - folderPath: "/opt"
+          - folderPath: "/proc"
+          - folderPath: "/root"
+          - folderPath: "/run"
+          - folderPath: "/sbin"
+          - folderPath: "/sys"
+          - folderPath: "/tmp"
+          - folderPath: "/usr"
+          - folderPath: "/var"
+auth:
+  methods:
+    password:
+      enabled: true
+EOF
+    echo "配置已转换为 v2 结构（旧文件备份: $CFG.v1.bak）"
     exit 0
 
 fi

@@ -41,10 +41,10 @@ https://raw.githubusercontent.com/insomnia417/Unraid-FileBrowser_Quantum-Plugins
 默认密码： admin
 
 ### 内外网分流（反向代理）
-FB 标签页会根据访问方式自动选择 FileBrowser 地址，在 `config.yaml` 的 `server` 节点下配置：
+FB 标签页会根据访问方式自动选择 FileBrowser 地址，在 `config.yaml` 的 `http:` 节点下配置：
 
 ```yaml
-server:
+http:
   # 内网直连地址：通过内网 IP 访问 FB 标签页时使用；留空 = 自动使用 http://<访问主机>:<端口>
   internalUrl: ""
   # 外网反代地址：通过域名/公网访问时使用，如 https://filebrowser.example.com:8888
@@ -53,6 +53,11 @@ server:
 
 - 通过内网 IP（如 `http://192.168.1.10/`）访问 Unraid 时，iframe 走 `internalUrl`；
 - 通过域名（如 `https://nas.example.com/`）访问时，iframe 走 `externalUrl`（需配置 HTTPS 反代，否则浏览器会拦截混合内容）。
+
+### FileBrowser Quantum v2
+- 插件已适配上游 v2（默认安装 v2.0.1-stable；beta 分支为 v2.1.x）。v2 将数据库从 BoltDB 换成 SQLite、配置结构调整（`port/baseURL/internalUrl/externalUrl` 移至 `http:` 段）。
+- **从旧版升级**：安装时自动转换 v1 配置（保留端口与内外网地址），并把旧 `database.db` 自动迁移到 SQLite；旧文件备份为 `database.db.old` 与 `config.yaml.v1.bak`。
+- v2 的密码重置命令变为：`filebrowser_quantum user set admin --password '新密码'`（v1 是 `users update`）。
 
 ## 关于
 2025-2026 元旦跨年期间折腾 NAS 的产物。
