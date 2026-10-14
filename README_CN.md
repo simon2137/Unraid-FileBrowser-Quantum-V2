@@ -31,20 +31,16 @@
 
 ## 安装方法
 
-### 方法 1：通过应用市场（推荐）
-
-1. 打开 Unraid WebUI，点击 **Apps** 标签页
-2. 搜索 `FileBrowser Quantum`，点击 **Install**
+### 方法 1：通过应用市场 (推荐)
+1. 打开 Unraid 控制台，点击 **Apps** 标签页。
+2. 搜索 `FileBrowser Quantum`。
+3. 点击 **Install**。
 
 ### 方法 2：手动安装
-
-在 **插件（Plugins）→ 安装插件** 中输入：
-
+在 Unraid **插件 (Plugins)** 标签页，点击 **安装插件**，在输入框中输入以下 URL：
 ```
 https://raw.githubusercontent.com/insomnia417/Unraid-FileBrowser_Quantum-Plugins/refs/heads/main/FileBrowser_Quantum.plg
 ```
-
-安装完成后，进入 **Settings → Utilities → FileBrowser Quantum** 进行配置。
 
 ---
 

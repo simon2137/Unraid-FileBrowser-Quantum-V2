@@ -31,20 +31,15 @@
 
 ## Installation
 
-### Method 1: Community Applications (recommended)
-
-1. Open the Unraid WebUI and go to the **Apps** tab
-2. Search for `FileBrowser Quantum` and click **Install**
-
-### Method 2: Manual install
-
-Go to **Plugins → Install Plugin** and enter:
+1. Open Unraid console, click the **Apps** tab.
+2. Search for `FileBrowser Quantum` and click **Install**.
+3. *Alternatively*, install manually via URL in **Plugins** -> **Install Plugin**:
 
 ```
 https://raw.githubusercontent.com/insomnia417/Unraid-FileBrowser_Quantum-Plugins/main/FileBrowser_Quantum.plg
 ```
 
-After installation, configure the plugin at **Settings → Utilities → FileBrowser Quantum**.
+Open unRAID WebUI, go to the "Plugins" tab, click "Install Plugin", and enter the following URL in the input box:
 
 ---
 
