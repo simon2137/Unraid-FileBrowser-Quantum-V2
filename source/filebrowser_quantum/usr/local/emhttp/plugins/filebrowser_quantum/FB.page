@@ -8,27 +8,24 @@ Tabs="no"
   // 引入基础配置文件
   include "/usr/local/emhttp/plugins/filebrowser_quantum/base.php";
 
-  // 逻辑处理：内外网分流（适配反向代理）
-  $host = preg_replace('/:.*/', '', $_SERVER['HTTP_HOST']);
-
-  $port = trim(exec("$DAEMON_SCRIPT GET_PORT"));
-  if (empty($port) || !is_numeric($port)) { $port = "8081"; }
-
-  // 读取 config.yaml 中的 server.internalUrl / server.externalUrl
-  //   internalUrl: 内网直连地址，留空时默认 http://<当前访问主机>:<端口>（保持旧行为）
-  //   externalUrl: 外网（反代）地址，如 https://filebrowser.example.com:8888
-  // 判定规则：通过内网 IP / localhost 访问走 internalUrl，其余（域名/公网反代）走 externalUrl
-  $internalUrl = rtrim(getConfigYamlValue('internalUrl', ''), '/');
-  $externalUrl = rtrim(getConfigYamlValue('externalUrl', ''), '/');
-  if ($internalUrl === '') {
-      $internalUrl = "http://{$host}:{$port}";
-  }
-
-  // 内网地址段：127.0.0.0/8、10.0.0.0/8、172.16.0.0/12、192.168.0.0/16、
-  //             169.254.0.0/16、IPv6 ::1 / fe80:: / fc00::/7
-  $isLanHost = (bool) preg_match('/^(localhost|127\.|10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2[0-9]|3[01])\.|\[?::1$|\[?fe80:|\[?f[cd])/i', $host);
-
-  $fburl = ($isLanHost || $externalUrl === '') ? $internalUrl : $externalUrl;
+  /*
+   * 内外网分流（适配反向代理）
+   * ---------------------------------------------------------------------------
+   * 旧实现的问题：protocol 硬编码为 http://，host 只取 HTTP_HOST（忽略反代头），
+   * 端口固定用 FileBrowser 的内网端口。在 https 域名反代 + externalUrl 留空时，
+   * 会拼出 http://<外网域名>:<内网端口> —— 既指向了错误端口，又因父页面是 https
+   * 被浏览器按 mixed content 直接拦截，于是 FB 标签页「无法访问」。
+   *
+   * 现在由 base.php 的 getFileBrowserNav() 统一解析：
+   *   1) 内网访问 + http.internalUrl  → 用 internalUrl
+   *   2) 外网访问 + http.externalUrl  → 用 externalUrl
+   *   3) 否则按 X-Forwarded-Proto / X-Forwarded-Host / X-Forwarded-Port 推导，
+   *      内网走「当前页面协议 + 内网主机 + FB 端口」，外网走「反代协议 + 反代域名 + 反代端口」
+   */
+  $fb = getFileBrowserNav();
+  $pageScheme = getRequestScheme();
+  $fbMixed = isMixedContentUrl($fb['url'], $pageScheme);
+  $fbDebug = isset($_GET['fbdebug']) && $_GET['fbdebug'] !== '' && $_GET['fbdebug'] !== '0';
 ?>
 
 <style>
@@ -83,8 +80,87 @@ Tabs="no"
     border: none;
     display: block;
   }
+
+  /* 5. 混合内容 / 反代配置提示条（仅在真的出问题时出现） */
+  .fb-warn {
+    position: fixed;
+    left: 0;
+    right: 0;
+    top: 130px;
+    z-index: 9999;
+    background: #7a4b00;
+    color: #fff;
+    font-size: 13px;
+    line-height: 1.6;
+    padding: 10px 14px;
+    border-bottom: 1px solid #ffb300;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, .5);
+  }
+  .fb-warn b { color: #ffd24d; }
+  .fb-warn code {
+    background: rgba(0, 0, 0, .35);
+    padding: 1px 5px;
+    border-radius: 3px;
+    color: #ffe9b0;
+  }
+  .fb-warn a { color: #9fe8ff; }
+  .fb-warn-hint { color: #ffe9b0; }
+  .fb-warn .fb-warn-close {
+    float: right;
+    cursor: pointer;
+    color: #ffd24d;
+    font-weight: bold;
+    padding-left: 10px;
+  }
+
+  /* 6. 调试信息（?fbdebug=1） */
+  .fb-debug {
+    position: fixed;
+    right: 8px;
+    bottom: 8px;
+    z-index: 9999;
+    background: rgba(0, 0, 0, .82);
+    color: #7dffb0;
+    font: 12px/1.5 Consolas, Menlo, monospace;
+    padding: 8px 10px;
+    border: 1px solid #1f6f43;
+    border-radius: 4px;
+    max-width: 60vw;
+    white-space: pre-wrap;
+    word-break: break-all;
+  }
 </style>
 
+<?php if ($fbMixed): ?>
+<div class="fb-warn" id="fb-warn">
+  <span class="fb-warn-close" onclick="this.parentNode.style.display='none'">✕</span>
+  <b>FileBrowser 无法加载：混合内容被浏览器拦截</b><br>
+  当前 Unraid 页面是 <code><?=htmlspecialchars($pageScheme, ENT_QUOTES)?></code>，而 FileBrowser 地址是
+  <code><?=htmlspecialchars($fb['url'], ENT_QUOTES)?></code>，<br>
+  浏览器禁止 https 页面内嵌 http 内容，请任选一种方式解决：
+  <span class="fb-warn-hint">
+    ① 给 FileBrowser 也配置 https 反代，并在设置页把 <code>http.externalUrl</code> 填成该 https 地址；
+    ② 通过 http 地址访问 Unraid WebUI（内网直连）；
+    ③ 临时可 <a href="<?=htmlspecialchars($fb['url'], ENT_QUOTES)?>" target="_blank" rel="noopener">点此新窗口直接打开</a>。
+  </span>
+</div>
+<?php endif; ?>
+
+<?php if ($fbDebug): ?>
+<div class="fb-debug">source: <?=htmlspecialchars($fb['source'], ENT_QUOTES)?>
+request: <?=htmlspecialchars($fb['scheme'], ENT_QUOTES)?>://<?=htmlspecialchars($fb['host'], ENT_QUOTES)?><?=$fb['requestPort'] !== null ? ':' . htmlspecialchars($fb['requestPort'], ENT_QUOTES) : ''?>
+
+iframe: <?=htmlspecialchars($fb['url'], ENT_QUOTES)?>
+
+lan: <?=$fb['isLan'] ? 'yes' : 'no'?> | fbPort: <?=htmlspecialchars($fb['port'], ENT_QUOTES)?> | baseURL: <?=htmlspecialchars($fb['baseURL'], ENT_QUOTES)?>
+
+internalUrl: <?=htmlspecialchars($fb['internalUrl'] !== '' ? $fb['internalUrl'] : '(empty)', ENT_QUOTES)?>
+
+externalUrl: <?=htmlspecialchars($fb['externalUrl'] !== '' ? $fb['externalUrl'] : '(empty)', ENT_QUOTES)?>
+
+trustProxyHeaders: <?=$fb['trustProxyHeaders'] ? 'true' : 'false'?> | mixed: <?=$fbMixed ? 'YES' : 'no'?></div>
+<?php endif; ?>
+
 <div class="fb-full-view">
-  <iframe src="<?=$fburl?>?v=<?=time()?>" class="fb-full-iframe"></iframe>
+  <iframe src="<?=htmlspecialchars($fb['url'], ENT_QUOTES)?>?v=<?=time()?>" class="fb-full-iframe"></iframe>
 </div>

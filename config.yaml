@@ -3,9 +3,11 @@
 http:
   port: 8081
   baseURL: "/"
-  # 内网直连地址：通过内网 IP 访问 FB 标签页时使用；留空 = 自动使用 http://<访问主机>:<端口>
+  # 内网直连地址：通过内网 IP/主机名访问 FB 标签页时使用；
+  # 留空 = 自动使用「当前页面协议://访问主机:端口」（https 页面不会嵌 http 内网地址，避免混合内容拦截）
   internalUrl: ""
   # 外网反代地址：通过域名/公网访问时使用，如 https://filebrowser.example.com:8888
+  # 留空 = 自动使用「X-Forwarded-Proto://X-Forwarded-Host[:X-Forwarded-Port]」推导，无需手填
   externalUrl: ""
   # 位于反向代理之后时建议开启，使 Cookie/客户端 IP/跳转正确解析
   trustProxyHeaders: false

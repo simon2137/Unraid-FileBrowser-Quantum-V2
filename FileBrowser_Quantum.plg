@@ -1,8 +1,8 @@
 <?xml version='1.0' standalone='yes'?>
 <!DOCTYPE PLUGIN [
   <!ENTITY branch "main">
-  <!ENTITY version "2026.10.14.1">
-  <!ENTITY bundleversion "2026.10.14.1">
+  <!ENTITY version "2026.10.15.1">
+  <!ENTITY bundleversion "2026.10.15.1">
   <!ENTITY author "insomnia417">
   <!ENTITY name "filebrowser_quantum">
   <!ENTITY launch "Settings/filebrowser_quantum">
@@ -16,6 +16,13 @@
 <CHANGES>
 ### &name;
 #### 🆕 最新更新 (v&version;)
+- **修复 FB/FQ 标签页内外网分流**：反向代理外网域名访问时不再出现「外网域名 + 内网端口」（如 `http://域名:8081`）。
+  - 协议改为按 `X-Forwarded-Proto` / `HTTPS` / `SERVER_PORT` 识别，不再硬编码 `http://`，彻底避免 https 页面嵌入 http iframe 被浏览器按混合内容拦截。
+  - 主机与端口改为按 `X-Forwarded-Host` / `X-Forwarded-Port` 识别（回退 `HTTP_HOST`），反代非默认端口会被保留；`externalUrl` 留空时也能自动推导出正确的外网地址，无需手填。
+  - 内网判定新增内网主机名（本机名、单标签主机名、`*.local`/`*.lan`/`*.home`/`*.home.arpa`），与原有私有网段判定并存。
+  - config.yaml 的 `http:` 段改为按段解析，不再跨段误读同名键（此前 `server:` 段同名键可能覆盖 http 配置）。
+  - 确实无法避免混合内容时（例如显式把 `internalUrl` 配成 http 而 WebUI 是 https），标签页会显示橙色提示条给出三种改法，不再静静空白。
+  - 新增 `?fbdebug=1` 调试面板：显示解析来源、请求头、最终 iframe 地址与 internalUrl/externalUrl 实际取值，便于自助排查。
 - **内核升级**：适配 FileBrowser Quantum v2（当前目标 v2.0.1-stable / v2.1.2-beta），安装时自动完成 v1→v2 配置转换与 BoltDB→SQLite 数据库迁移，保留端口与内外网地址配置。
 - **内外网分流**：FB 标签页适配反向代理，支持 config.yaml 中的 `internalUrl` / `externalUrl`（已移至 `http:` 段），内网 IP 访问走直连，域名访问走反代地址。
 
@@ -176,9 +183,9 @@ cat <<EOF > "/boot/config/plugins/${NAME}/config.yaml"
 http:
   port: 8081
   baseURL: "/"
-  # 内网直连地址：通过内网 IP 访问 FB 标签页时使用；留空 = 自动使用 http://<访问主机>:<端口>
+  # 内网直连地址：通过内网 IP/主机名访问 FB 标签页时使用；留空 = 自动使用 当前页面协议://访问主机:端口
   internalUrl: ""
-  # 外网反代地址：通过域名/公网访问时使用，如 https://filebrowser.example.com:8888
+  # 外网反代地址：通过域名/公网访问时使用，如 https://filebrowser.example.com:8888；留空 = 按 X-Forwarded-* 头自动推导
   externalUrl: ""
 server:
   database:

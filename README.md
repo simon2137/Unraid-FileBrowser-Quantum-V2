@@ -74,7 +74,7 @@ The FQ tab picks the FileBrowser URL automatically based on how you access the U
 http:
   port: 8081
   baseURL: "/"
-  # Internal URL used when accessing via LAN IP; empty = auto http://<host>:<port>
+  # Internal URL used when accessing via LAN IP/hostname; empty = auto <page-scheme>://<host>:<port>
   internalUrl: ""
   # External URL used when accessing via domain, e.g. https://filebrowser.example.com:8888
   externalUrl: ""
@@ -82,11 +82,19 @@ http:
 
 | How you access Unraid | The FQ tab loads |
 |---|---|
-| LAN IP, e.g. `http://192.168.1.10/` | `internalUrl` (empty = `http://192.168.1.10:8081`) |
-| Domain, e.g. `https://nas.example.com/` | `externalUrl` |
+| LAN IP / LAN hostname, e.g. `http://192.168.1.10/` or `http://tower.local/` | `internalUrl`; if empty → **current page scheme** + host + FileBrowser port (`http://192.168.1.10:8081`) |
+| Domain, e.g. `https://nas.example.com/` | `externalUrl`; if empty → **`X-Forwarded-Proto` scheme + `X-Forwarded-Host` + `X-Forwarded-Port`** (`https://nas.example.com`) |
 
-- `externalUrl` must be **HTTPS** (when the parent page is https, browsers block http iframes as mixed content)
-- Detection rule: the access host is treated as LAN if it is a private range (127/10/172.16-31/192.168/169.254, localhost); everything else uses `externalUrl`. If `externalUrl` is not set, it always falls back to internal behavior
+Resolution order: `internalUrl` (LAN only) → `externalUrl` (non-LAN) → auto-detect from the proxy headers.
+
+- LAN detection: private ranges (127/8, 10/8, 172.16-31/12, 192.168/16, 169.254/16), `localhost`, IPv6 `::1`/`fe80::`/`fc00::/7`, plus LAN-style hostnames (`tower`, single-label names, `*.local`, `*.lan`, `*.home`, `*.home.arpa`)
+- The scheme is taken from `X-Forwarded-Proto` (falling back to `HTTPS=on` and `SERVER_PORT=443`), so an https WebUI no longer embeds an http iframe
+- A non-default reverse-proxy port is preserved: `X-Forwarded-Port: 8443` → `https://nas.example.com:8443`
+- `externalUrl`/`internalUrl` are only skipped when the other branch applies — a LAN visitor never receives the external URL, and a remote visitor never receives an internal address
+- If a mixed-content situation cannot be avoided (e.g. you explicitly set an **http** `internalUrl` while the WebUI itself is https), the FQ tab now shows an orange banner explaining it instead of silently staying blank
+- Append `?fbdebug=1` to the FQ tab URL to display the resolved source, request headers, the final iframe URL and the raw `internalUrl`/`externalUrl`/`trustProxyHeaders` values
+
+> Older versions hard-coded `http://` and the FileBrowser port, so with an empty `externalUrl` under an https domain the iframe pointed at `http://domain:8081` — the wrong port, and blocked by the browser as mixed content. That is fixed.
 
 ### Reverse Proxy Requirements for FileBrowser
 
@@ -164,7 +172,12 @@ Full field reference: [upstream configuration docs](https://filebrowserquantum.c
 ## FAQ
 
 **The FQ tab is blank / spins forever?**
-Press F12 and inspect the iframe's `src`: when accessing by domain it should be your `externalUrl`. If it shows `https://domain:internal-port`, `externalUrl` is not configured; if the browser reports mixed content, `externalUrl` is http.
+Append `?fbdebug=1` to the tab URL and press F12:
+
+- the debug box shows the resolved `source` — `auto:request+proxy` means no `externalUrl` was configured and the URL was derived from the proxy headers
+- if the debug box (or the browser console) reports **mixed content**, the FileBrowser address is http while the WebUI is https: configure an https `externalUrl`, or reach the WebUI over http
+- if it shows `https://domain:internal-port`, you are running an older plugin version where `externalUrl` had to be set manually — update the plugin
+- an orange banner at the top of the tab means the plugin already detected the mixed-content case and explains the fixes
 
 **"Wrong password" on login?**
 First make sure you haven't triggered brute-force protection (repeated failures temporarily ban the IP — wait 10 minutes). If it still fails, reset the password using the command in "First Login".

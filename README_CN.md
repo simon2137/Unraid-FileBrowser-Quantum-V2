@@ -76,7 +76,7 @@ FQ 标签页会根据你访问 Unraid WebUI 的方式，自动选择 FileBrowser
 http:
   port: 8081
   baseURL: "/"
-  # 内网直连地址：通过内网 IP 访问 FQ 标签页时使用；留空 = 自动使用 http://<访问主机>:<端口>
+  # 内网直连地址：通过内网 IP/主机名访问 FQ 标签页时使用；留空 = 自动使用 <当前页面协议>://<访问主机>:<端口>
   internalUrl: ""
   # 外网反代地址：通过域名访问时使用，例如 https://filebrowser.example.com:8888
   externalUrl: ""
@@ -84,12 +84,24 @@ http:
 
 | 访问 Unraid 的方式                   | FQ 标签页加载                                       |
 | ------------------------------- | ---------------------------------------------- |
-| 内网 IP，如 `http://192.168.1.10/`  | `internalUrl`（留空时为 `http://192.168.1.10:8081`） |
-| 域名，如 `https://nas.example.com/` | `externalUrl`                                  |
+| 内网 IP / 内网主机名，如 `http://192.168.1.10/`、`http://tower.local/` | `internalUrl`；留空时按**当前页面协议** + 主机 + FileBrowser 端口推导（`http://192.168.1.10:8081`） |
+| 域名，如 `https://nas.example.com/` | `externalUrl`；留空时按 **`X-Forwarded-Proto` 协议 + `X-Forwarded-Host` + `X-Forwarded-Port`** 推导（`https://nas.example.com`） |
 
-* `externalUrl` 必须走 **HTTPS**（页面是 https 时，浏览器会拦截 http 的 iframe，即"混合内容"）
+解析优先级：`internalUrl`（仅内网命中）→ `externalUrl`（非内网命中）→ 按反代头自动推导。
 
-* 判定规则：访问主机是内网 IP 段（127/10/172.16-31/192.168/169.254、localhost）视为内网，其余一律走 `externalUrl`；未配置 `externalUrl` 时始终回退内网行为
+* 内网判定：私有网段（127/8、10/8、172.16-31/12、192.168/16、169.254/16）、`localhost`、IPv6 `::1`/`fe80::`/`fc00::/7`，以及内网风格主机名（`tower`、单标签主机名、`*.local`、`*.lan`、`*.home`、`*.home.arpa`）
+
+* 协议取自 `X-Forwarded-Proto`（其次 `HTTPS=on`、`SERVER_PORT=443`），因此 https 的 WebUI 不会再嵌一个 http iframe
+
+* 反代非默认端口会被保留：`X-Forwarded-Port: 8443` → `https://nas.example.com:8443`
+
+* 两个字段互不串味：内网访问永远不会拿到外网地址，外网访问也永远不会拿到内网地址
+
+* 万一确实无法避免混合内容（例如你显式把 `internalUrl` 配成 **http** 地址，而 WebUI 本身走 https），FQ 标签页会显示一条橙色提示条说明原因和三种改法，而不是静静空白
+
+* 在 FQ 标签页地址后加 `?fbdebug=1`，会显示解析来源、请求头、最终 iframe 地址，以及 `internalUrl`/`externalUrl`/`trustProxyHeaders` 的实际取值
+
+> 旧版本把协议硬编码为 `http://` 并固定使用 FileBrowser 内网端口，因此在 https 域名 + `externalUrl` 留空时会拼出 `http://域名:8081` —— 端口错误，且被浏览器按混合内容拦截，这正是"外网域名+内网端口进不去"的原因，现已修复。
 
 ### FileBrowser 反代配置要求
 
@@ -171,7 +183,12 @@ auth:
 ## 常见问题
 
 **FQ 标签页空白/一直转圈？**
-按 F12 看 iframe 的 src：域名访问时它应该是 `externalUrl`。若 src 是 `https://域名:内部端口`，说明 `externalUrl` 未配置；若浏览器报"混合内容"，说明 `externalUrl` 是 http。
+在标签页地址后加 `?fbdebug=1`，同时按 F12：
+
+* 调试框里的 `source` 是解析来源：`auto:request+proxy` 表示没配 `externalUrl`，地址由反代头推导而来
+* 若调试框或浏览器控制台提示 **mixed content（混合内容）**，说明 FileBrowser 地址是 http 而 WebUI 是 https：请配置 https 的 `externalUrl`，或改用 http 访问 WebUI
+* 若地址仍是 `https://域名:内部端口`，说明插件版本过旧（旧版必须手填 `externalUrl`），请更新插件
+* 标签页顶部出现橙色提示条，说明插件已自动识别混合内容问题，提示条里写了三种改法
 
 **提示密码错误？**
 先确认没触发防爆破（连续失败会临时封 IP，等 10 分钟）；确认后仍失败用本文"初始登录"一节的命令重置。
