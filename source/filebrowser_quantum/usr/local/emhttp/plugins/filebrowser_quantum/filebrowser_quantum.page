@@ -1,0 +1,677 @@
+Menu="Utilities"
+Title="filebrowser_quantum"
+Icon="filebrowser_quantum.png"
+---
+<?PHP
+/* Copyright 2005-2016, Lime Technology
+ * Copyright 2012-2016, Bergware International.
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License version 2,
+ * as published by the Free Software Foundation.
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ */
+require_once "/usr/local/emhttp/plugins/filebrowser_quantum/base.php";
+$log_level = 'all';
+?>
+
+> Use this page to make changes to your `config.yaml` file as well as update filebrowser_quantum if a newer version is available.
+>
+> To setup filebrowser_quantum for the first time execute the command `filebrowser_quantum config` in command line.
+
+<script>
+/**
+ * FileBrowser Quantum - Frontend Controller
+ * v15.0 - Refactored & Modularized
+ */
+
+// ============================================================
+// Global State
+// ============================================================
+var originalServiceState = "";
+var evtSource = null;
+var validateTimer = null;
+
+// ============================================================
+// Utility Functions
+// ============================================================
+
+/**
+ * Unified UI state update function
+ * Added 'verifying' state for better UX during saves
+ */
+function updateServiceUI(isRunning, port, verifying = false) {
+    let color = isRunning ? "#4caf50" : "#f44336";
+    let text = isRunning ? "● RUNNING" : "○ STOPPED";
+    
+    if (verifying) {
+        color = "#999";
+        text = "○ VERIFYING...";
+    }
+    
+    const portColor = (isRunning && !verifying) ? "#4caf50" : "#999";
+    
+    $("#service_status_container").css("border-left-color", color);
+    $("#service_status_label").css("color", color);
+    $("#service_status_label span").text(text).css("color", color);
+    $("#port_value").text(port).css("color", portColor);
+    
+    // Handle OPEN WEBUI button
+    const applyBtn = $("input[value='APPLY']");
+    $(".localURL").remove();
+    
+    if (isRunning && !verifying) {
+        $('<input type="button" class="localURL" value="OPEN WEBUI" />')
+            .attr("onclick", "window.open('http://' + window.location.hostname + ':" + port + "', '_blank')")
+            .insertAfter(applyBtn);
+    }
+}
+
+/**
+ * Display validation result in UI
+ */
+function displayValidationResult(errors) {
+    // Legacy function placeholder (logic now purely backend-driven upon SAVE)
+    $("#save_status").hide();
+}
+
+// ============================================================
+// Version & Update Functions
+// ============================================================
+
+function updatefilebrowser_quantum(branch) {
+    var path = "/usr/local/emhttp/plugins/filebrowser_quantum/updatefilebrowser_quantum.sh"
+    openBox('/usr/local/emhttp/plugins/filebrowser_quantum/startScript.sh&arg1='+path+'&arg2='+branch,"Update filebrowser_quantum",450,800,true);
+}
+
+function changeBranch(value) {
+    const latestText = $("#latest_ver_val");
+    const updateBtn = $("#update_btn_id");
+    const currentVer = $(".current_ver_text").text().trim(); 
+    
+    latestText.css("opacity", "0.5").text("Checking...");
+    updateBtn.prop("disabled", true); 
+    
+    $.post("/plugins/filebrowser_quantum/api_config.php?action=check_update&t=" + new Date().getTime(), { branch: value }, function(response) {
+        if (response.success) {
+            const latestVer = response.data.latest_version;
+            latestText.text(latestVer).css("opacity", "1");
+            
+            if (latestVer !== "Unknown" && latestVer !== "" && latestVer !== currentVer) {
+                updateBtn.prop("disabled", false);
+                updateBtn.attr("onclick", "updatefilebrowser_quantum('" + value + "')");
+            } else {
+                updateBtn.prop("disabled", true);
+                updateBtn.removeAttr("onclick"); 
+            }
+        } else {
+            latestText.text("Error").css("opacity", "1");
+            console.error("Version check failed: " + response.message);
+        }
+    }, "json");
+}
+
+// ============================================================
+// Service Control Functions
+// ============================================================
+
+function toggleService(value) {
+    const applyBtn = $("input[value='APPLY']");
+    const hiddenInput = $("#webui_status_hidden");
+    
+    hiddenInput.val(value);
+
+    if (value !== originalServiceState) {
+        applyBtn.prop("disabled", false).addClass("submit");
+    } else {
+        applyBtn.prop("disabled", true).removeClass("submit");
+    }
+}
+
+function applyService(form) {
+    const applyBtn = $(form).find('input[value="APPLY"]');
+    const enabledValue = document.getElementById('webui_status_hidden').value;
+    
+    if (enabledValue === originalServiceState) return; 
+
+    // UI Feedback: Set to PROCESSING
+    applyBtn.prop('disabled', true).val('PROCESSING...');
+    updateServiceUI(false, $("#port_value").text(), true); // Visual Reset
+    
+    // Async API Call
+    $.post("/plugins/filebrowser_quantum/api_config.php?action=set_state&t=" + new Date().getTime(), { enabled: enabledValue }, function(resp) {
+        startPolling(form, applyBtn);
+    });
+}
+
+function startPolling(form, applyBtn) {
+    let pollCount = 0;
+    const maxPolls = 30; // 15 seconds max (at 0.5s interval)
+    let stableCount = 0;
+    let lastRunningState = null;
+    
+    let checkTimer = setInterval(function() {
+        $.getJSON("/plugins/filebrowser_quantum/api_config.php?action=get_status&t=" + new Date().getTime(), function(response) {
+            if (!response.success) return;
+            
+            const data = response.data;
+            const newState = data.enabled;
+            pollCount++;
+
+            if (newState === $("#webui_status_hidden").val()) {
+                if (data.running === lastRunningState) {
+                    stableCount++;
+                } else {
+                    stableCount = 0;
+                }
+                lastRunningState = data.running;
+
+                // LOGIC: High-speed short-circuit
+                // 1. Instant-Ready: If binary has bound to port (success proven), skip the 7s wait.
+                // 2. Stopping: 1 poll (0.5s) is enough.
+                const isStopping = (newState === "false");
+                const requiredStable = isStopping ? 1 : 14;
+
+                if (data.ready && !isStopping) {
+                    // FAST-TRACK: Service is already listening, no need to wait for 7s safety 
+                    stableCount = requiredStable; 
+                }
+
+                if (stableCount >= requiredStable || pollCount >= maxPolls) {
+                    clearInterval(checkTimer);
+                    
+                    // SYNC: Lock in the current state
+                    originalServiceState = newState;
+                    
+                    // UI: Standard Reset
+                    applyBtn.val('APPLY').prop('disabled', false).removeClass('submit');
+                    $('input[name="webui_radio"][value="' + newState + '"]').prop('checked', true);
+                    
+                    updateServiceUI(data.running, data.port);
+                    
+                    // Final Sync: Ensure APPLY button color matches reality
+                    toggleService(newState);
+                }
+            } else if (pollCount >= maxPolls) {
+                clearInterval(checkTimer);
+                applyBtn.val('APPLY').prop('disabled', false);
+            }
+        });
+    }, 500); // 500ms for high-speed responsiveness
+}
+
+// ============================================================
+// Log Stream Functions (SSE)
+// ============================================================
+
+function startLogTail() {
+    stopLogTail(); 
+
+    const logArea = document.querySelector('.log-area');
+    const logLevel = $("select[name='log_level']").val() || 'all';
+    
+    logArea.innerHTML = "<b style='color:yellow;'>[System] 正在请求 SSE 流 (Level: " + logLevel.toUpperCase() + ")...</b><br>";
+    
+    evtSource = new EventSource("/plugins/filebrowser_quantum/log_stream.php?level=" + logLevel + "&t=" + new Date().getTime());
+
+    evtSource.onopen = function() {
+        logArea.innerHTML = "<b style='color:green;'>[System] 实时日志连接成功！</b><br>";
+    };
+
+    evtSource.onmessage = function(e) {
+        if (e.data.trim() === "heartbeat") return;
+        
+        const isAtBottom = logArea.scrollHeight - logArea.scrollTop <= logArea.clientHeight + 80;
+        const newLog = document.createElement("span");
+        newLog.innerHTML = e.data + "<br>"; 
+        logArea.appendChild(newLog);
+
+        if (isAtBottom) {
+            logArea.scrollTop = logArea.scrollHeight;
+        }
+    };
+
+    evtSource.onerror = function(err) {
+        console.warn("SSE 中断");
+        if (evtSource && evtSource.readyState !== 2) { 
+            const statusNode = document.createElement("div");
+            statusNode.innerHTML = "<b style='color:orange;'>[System] 连接已重置，正在尝试重新连接...</b>";
+            logArea.appendChild(statusNode);
+        }
+    };
+}
+
+function stopLogTail() {
+    if (evtSource) {
+        evtSource.close();
+        evtSource = null;
+        console.log("Log stream closed.");
+    }
+}
+
+function clearLog() {
+    if (confirm('确定要清空所有日志内容吗？')) {
+        $.post("/plugins/filebrowser_quantum/api_config.php?action=clear_log&t=" + new Date().getTime(), function(response) {
+            if (response.success) {
+                $(".log-area").html("<b style='color:gray;'>[System] 日志已清空，正在等待新日志产生...</b><br>");
+            } else {
+                $(".log-area").html("<b style='color:red;'>[Error] " + response.message + "</b><br>");
+            }
+        }, "json");
+    }
+}
+
+// ============================================================
+// Config Editor Functions
+// ============================================================
+
+function setDefault(form) {
+    if (window.defaultConfigText) {
+        form.elements['config_text'].value = window.defaultConfigText;
+        triggerValidation();
+    }
+}
+
+function onConfigInput() {
+    var btn = document.getElementById('SAVE_btn');
+    btn.style.background = '#81c784'; // Lighter green (Material 300)
+    btn.style.color = '#fff';
+    btn.style.borderColor = '#81c784';
+    // Real-time local validation removed in favor of Binary-Native Truth on SAVE
+}
+
+function triggerValidation() {
+    clearTimeout(validateTimer);
+    validateTimer = setTimeout(function() {
+        const content = $("#config_text").val();
+        const errors = validateYamlRealtime(content);
+        displayValidationResult(errors);
+    }, 300);
+}
+
+function saveConfig() {
+    var content = $("#config_text").val();
+    var enabled = $('input[name="webui_radio"]:checked').val(); 
+    
+    var btn = document.getElementById('SAVE_btn');
+    btn.innerText = "SAVING...";
+    btn.style.background = '#81c784';
+    btn.style.color = '#fff';
+    btn.style.borderColor = '#81c784';
+    
+    // UI Feedback: Visual Reset
+    $("#save_status").text("Saving configuration...").css("color", "gray").show();
+    
+    // Only show "VERIFYING..." (3rd param true) if we are actually in Enabled mode
+    updateServiceUI(false, $("#port_value").text(), (enabled === 'true')); 
+    
+    var postData = "content=" + encodeURIComponent(content) + "&enabled=" + enabled;
+
+    $.ajax({
+        url: "/plugins/filebrowser_quantum/api_config.php?action=save_config&t=" + new Date().getTime(),
+        type: 'POST',
+        data: postData, 
+        success: function(response) {
+            if (response.success) {
+                // SUCCESS STATE
+                btn.innerText = "SAVED ✔";
+                btn.style.background = '#81c784';
+                btn.style.color = '#fff';
+                btn.style.borderColor = '#81c784';
+
+                $("#save_status").text(response.message).css("color", "#81c784").show();
+                
+                setTimeout(function() { 
+                    $("#save_status").fadeOut(); 
+                    btn.innerText = "SAVE";
+                    btn.style.background = '#f2f2f2'; 
+                    btn.style.color = '#333'; 
+                    btn.style.borderColor = '#ccc';
+                }, 3000);
+                
+                window.defaultConfigText = content; 
+                 
+                var portMatch = content.match(/port:\s*(\d+)/);
+                if (portMatch && portMatch[1]) {
+                    var newPort = portMatch[1];
+                    $("#port_value").text(newPort);
+                }
+
+                // ASYNC TRIGGER: Start polling just like the APPLY button
+                const applyBtn = $("input[value='APPLY']");
+                startPolling(null, applyBtn);
+            } else {
+                // FAILURE STATE
+                btn.innerText = "FAILED ✘";
+                btn.style.background = '#f44336';
+                btn.style.color = '#fff';
+                btn.style.borderColor = '#f44336';
+
+                let errorMsg = response.message;
+                if (response.data && response.data.details) {
+                    $("#save_status").html("<b style='color:#f44336;'>Binary Validation Failed:</b><br><pre style='color:orange; font-size:10px; margin-top:5px; background:#fdfdfd; padding:5px; border:1px solid #ddd;'>" + response.data.details + "</pre>").show();
+                } else {
+                    $("#save_status").text(errorMsg).css("color", "#f44336").show();
+                }
+
+                setTimeout(function() {
+                    btn.innerText = "SAVE";
+                    // Only revert colors if no more unsaved changes (reset by onConfigInput)
+                    // But here we just revert to original for consistency
+                    btn.style.background = '#f2f2f2'; 
+                    btn.style.color = '#333'; 
+                    btn.style.borderColor = '#ccc';
+                }, 3000);
+
+                updateStatusViaAPI();
+            }
+        },
+        error: function(xhr, status, error) {
+            $("#save_status").text("Comm Error: " + error).css("color", "#f44336").show();
+            btn.innerText = "SAVE";
+            updateStatusViaAPI();
+        }
+    });
+}
+
+/**
+ * Helper to force status sync from API
+ */
+function updateStatusViaAPI() {
+    $.getJSON("/plugins/filebrowser_quantum/api_config.php?action=get_status&t=" + new Date().getTime(), function(response) {
+        if (response.success) {
+            const data = response.data;
+            updateServiceUI(data.running, data.port);
+        }
+    });
+}
+
+
+// ============================================================
+// Initialization
+// ============================================================
+
+$(document).ready(function() {
+    startLogTail();
+
+    // Load config
+    $.getJSON("/plugins/filebrowser_quantum/api_config.php?action=get_config&t=" + new Date().getTime(), function(response) {
+        if (response.success) {
+            $("#config_text").val(response.data.content);
+            window.defaultConfigText = response.data.content;
+            triggerValidation();
+        } else {
+            $("#config_text").val("# Error loading config");
+        }
+    });
+    
+    // Load status
+    $.getJSON("/plugins/filebrowser_quantum/api_config.php?action=get_status&t=" + new Date().getTime(), function(response) {
+        if (!response.success) return;
+        const data = response.data;
+        
+        $(".current_ver_text").text(data.local_version);
+        $("#latest_ver_val").text(data.latest_version);
+        
+        const updateBtn = $("#update_btn_id");
+        if (data.latest_version !== "Unknown" && data.latest_version !== "" && data.latest_version !== data.local_version) {
+            updateBtn.prop("disabled", false);
+        }
+        
+        originalServiceState = data.enabled;
+        $("#webui_status_hidden").val(data.enabled);
+        
+        $('input[name="webui_radio"][value="' + data.enabled + '"]').prop('checked', true);
+        $('input[name="branch_radio"][value="' + data.branch + '"]').prop('checked', true);
+        
+        updateServiceUI(data.running, data.port);
+        toggleService(data.enabled);
+    });
+});
+
+// Cleanup on page unload
+$(window).on('beforeunload', function() {
+    stopLogTail();
+});
+
+</script>
+
+<html>
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<style>
+/* v2.2.0 - Refactored Styles */
+.row { display: flex; flex-direction: column; align-items: flex-start; }
+.column { padding: 10px; width: 100%; box-sizing: border-box; }
+
+.column.left {
+    display: flex;
+    flex-direction: column;
+    padding-top: 0px !important;
+}
+
+.column h2 { 
+    margin: 0 0 15px 0 !important; 
+    font-size: 1.6rem !important; 
+    font-weight: bold !important;
+    line-height: 1.2;
+    color: #333;
+}
+
+.left input[type="button"], .right input[type="button"] {
+    width: 100% !important;
+    max-width: 170px;
+    height: 34px !important;
+    line-height: 32px !important; 
+    padding: 0 !important;
+    margin-bottom: 8px;
+    font-size: 12px;
+    font-weight: bold;
+    text-transform: uppercase;
+    text-align: center;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.status-box {
+    width: 100% !important;
+    max-width: 170px;
+    padding: 10px;
+    background: #fdfdfd;
+    border: 1px solid #ddd;
+    border-radius: 3px;
+    font-size: 12px;
+    box-sizing: border-box;
+}
+
+@media screen and (min-width: 1024px) {
+    .row { 
+        flex-direction: row; 
+        flex-wrap: nowrap; 
+        align-items: flex-start; 
+        gap: 20px; 
+    }
+    .left { 
+        flex: 0 0 170px; 
+        width: 170px; 
+    }
+    .mid { 
+        flex: 0.8; 
+        min-width: 350px; 
+        padding: 0 0px;
+    }
+    .right { 
+        flex: 1.5; 
+        min-width: 350px; 
+        position: relative; 
+        padding-top: 0px !important;
+    }
+    .column.right form.level-form { position: absolute; top: 5px; right: 15px; margin: 0; }
+}
+
+.log-area {
+    height: 499px !important;
+    background: #1e1e1e;
+    color: #dcdcdc;
+    font-family: bitstream, monospace;
+    font-size: 12px;
+    border-radius: 3px;
+    white-space: pre-wrap;
+    overflow-y: scroll;
+    border: 1px solid #333;
+}
+
+.level-form select {
+    background-color: #1100ff;
+    color: #fbff00;
+    border: 1px solid #ff0000;
+    border-radius: 3px;
+    padding: 2px 8px;
+    font-family: 'Clear Sans', sans-serif;
+    font-size: 11px;
+    font-weight: bold;
+    cursor: pointer;
+    outline: none;
+}
+
+.level-form select:hover {
+    background-color: #558ffc;
+    border-color: #ff0000;
+}
+
+#save_status {
+    margin-top: 10px;
+    font-weight: bold;
+    font-size: 12px;
+}
+</style>
+
+</head>
+
+<body>
+
+<div class="row">
+
+    <div class="column left">
+        <h2>Version :</h2>
+        <div class="status-box" style="border-left: 4px solid #51aee5; margin-bottom: 10px;">
+            <div style="color: #666; margin-bottom: 4px;">已安装: <b class="current_ver_text" style="color:#1a17d6; margin-left:4px;">...</b></div>
+            <div style="color: #666;">最新版: <b id="latest_ver_val" style="color:#eb2b2b; margin-left:4px;">...</b></div>
+        </div>
+
+        <div class="status-box" style="border-left: 4px solid #666; margin-bottom: 10px;">
+            <label style="display:block; cursor:pointer; margin-bottom:5px;">
+                <input type="radio" name="branch_radio" value="1" onclick="changeBranch(this.value);"> Stable Branch
+            </label>
+            <label style="display:block; cursor:pointer;">
+                <input type="radio" name="branch_radio" value="2" onclick="changeBranch(this.value);"> Beta Branch
+            </label>
+        </div>
+
+        <input type="button" id="update_btn_id" value="UPDATE" disabled>
+
+        <hr style="width: 100%; max-width: 170px; margin: 15px 0; border: 0; border-top: 1px solid #eee;">
+
+        <h2>Status :</h2>
+        <div id="service_status_container" class="status-box" style="border-left: 4px solid #ccc; margin-bottom: 10px;">
+            <div id="service_status_label" style="font-weight: bold; color: #666;">
+                <span>Loading...</span>
+            </div>
+            <div style="color: #999; margin-top:4px;">PORT: <strong id="port_value" style="color: #666;">...</strong></div>
+        </div>
+
+        <form action="" method="post" style="margin:0;">
+            <div class="status-box" style="border-left: 4px solid #666; margin-bottom: 10px;">
+                <label style="display:block; cursor:pointer; margin-bottom:5px;">
+                <input type="radio" name="webui_radio" value="true" onclick="toggleService(this.value);"> Enabled
+                </label>
+                <label style="display:block; cursor:pointer;">
+                <input type="radio" name="webui_radio" value="false" onclick="toggleService(this.value);"> Disabled
+                </label>
+            </div>
+            
+            <input type="hidden" id="webui_status_hidden" name="webui_status" value="false">      
+            <input type="button" value="APPLY" onclick="applyService(this.form)">
+        </form>
+    </div>
+
+    <div class="column mid">
+    <h2>config.yaml :</h2>
+    <form id="config_form" method="POST">
+      <textarea id="config_text" spellcheck="false" name="config_text" 
+        oninput="onConfigInput()" 
+        style="font-family:bitstream, monospace; width:100%; height:500px; padding:5px; box-sizing:border-box;"
+      >Loading configuration...</textarea>
+
+      <br><br> 
+      <a id="SAVE_btn" href="javascript:void(0);" 
+       onclick="saveConfig()"
+       style="display: inline-block; 
+              padding: 0 25px;
+              height: 32px;
+              line-height: 30px;
+              background: #f2f2f2; 
+              color: #333; 
+              border: 1px solid #ccc; 
+              cursor: pointer; 
+              text-decoration: none; 
+              border-radius: 2px; 
+              font-family: 'Clear Sans', sans-serif; 
+              font-size: 12px;
+              font-weight: bold; 
+              text-transform: uppercase; 
+              letter-spacing: 2px; 
+              box-sizing: border-box; 
+              vertical-align: middle;">
+       SAVE
+    </a>
+    
+    <input type="hidden" name="save_config_btn" value="1">
+    
+    <input type="button" value="Original" onclick="setDefault(this.form)" style="margin-left: 10px; vertical-align: middle;">
+    
+    <div id="save_status"></div>
+  </form> 
+    </div>
+
+    <div class="column right">
+    <h2>Logging :</h2>
+    <form class="level-form" onsubmit="return false;">
+        <?php $available_levels = getLogLevels($CONFIG_YAML); ?>
+        <select name="log_level" onchange="startLogTail();">
+            <option value="all" <?=$log_level=='all'?'selected':''?>>LEVEL: ALL</option>
+            <?php foreach($available_levels as $level): ?>
+                <?php if(empty($level)) continue; ?>
+                <option value="<?=$level?>" <?=$log_level==$level?'selected':''?>>
+                    LEVEL: <?=strtoupper($level)?>
+                </option>
+            <?php endforeach; ?>
+        </select>
+    </form>
+    <div class="log-area">正在连接实时日志流...</div>
+    
+    <div style="margin-top:21px;">
+        <input type="button" value="CLEAR LOG" onclick="clearLog();" 
+            style="width: auto !important;
+                    height: 32px !important; 
+                    line-height: 28px;
+                    padding: 0 10px !important;
+                    box-sizing: border-box;
+                    min-width: 50px;
+                    vertical-align: middle;
+                    font-size: 12px;
+                    font-weight: bold;
+                    text-transform: uppercase;
+                    cursor: pointer;">
+    </div>
+
+    </div>
+</div>
+
+</body>
+</html>

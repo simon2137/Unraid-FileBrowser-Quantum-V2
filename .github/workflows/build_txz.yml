@@ -1,0 +1,73 @@
+name: 自动打包.txz
+
+# run-name 会显示在 Action 列表里，动态展示当前运行的分支
+run-name: 正在分支 [${{ github.ref_name }}] 上执行自动打包
+on:
+  push:
+    # 匹配所有分支的 push，实现“在哪个分支就在哪个分支生效”
+    branches:
+      - '**' 
+    paths:
+      - 'source/**'
+      - 'FileBrowser_Quantum.plg'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Build and Update
+        run: |
+          mkdir -p archive
+          PLG_FILE="FileBrowser_Quantum.plg"
+          
+          # 1. 提取版本号
+          BUNDLE_VER=$(grep 'ENTITY bundleversion' "$PLG_FILE" | cut -d'"' -f2)
+          PKG_NAME="filebrowser_quantum-${BUNDLE_VER}-x86_64.txz"
+          
+          # 2. 打包
+          cd source/filebrowser_quantum
+          tar -cvJf "../../archive/$PKG_NAME" *
+          cd ../..
+          
+          # 3. 计算并更新 MD5
+          NEW_MD5=$(md5sum "archive/$PKG_NAME" | awk '{print $1}')
+          perl -i -pe "s/(ENTITY md5bundle \").*?(\")/\${1}$NEW_MD5\${2}/g" "$PLG_FILE"
+          
+          # 4. 生成 MD5 物理文件
+          echo "$NEW_MD5" > "archive/$PKG_NAME.md5"
+
+      - name: Commit and Push changes
+        run: |
+          # 1. 配置 Git 身份
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          
+          # 获取当前触发工作流的分支名称 (例如 testing)
+          CURRENT_BRANCH="${{ github.ref_name }}"
+          echo "当前分支: $CURRENT_BRANCH"
+          
+          # 2. 暂存所有变动的文件
+          git add FileBrowser_Quantum.plg archive/*.txz archive/*.md5
+          
+          # 3. 检查是否有文件改动，没改动直接退出
+          if git diff --staged --quiet; then
+            echo "No changes detected. Skipping commit."
+            exit 0
+          fi
+
+          # 4. 提交（带上动态日期和分支名）
+          git commit -m "auto: $(date +'%Y.%m.%d') update package and md5 on $CURRENT_BRANCH"
+          
+          # 5. 动态拉取并推送
+          git pull origin "$CURRENT_BRANCH" --rebase
+          git push origin "$CURRENT_BRANCH"

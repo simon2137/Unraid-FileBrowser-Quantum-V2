@@ -1,0 +1,90 @@
+Menu="Tasks:0002"
+Type="xmenu"
+Title="FQ"
+Icon="folder-open"
+Tabs="no"
+---
+<?php
+  // 引入基础配置文件
+  include "/usr/local/emhttp/plugins/filebrowser_quantum/base.php";
+
+  // 逻辑处理：内外网分流（适配反向代理）
+  $host = preg_replace('/:.*/', '', $_SERVER['HTTP_HOST']);
+
+  $port = trim(exec("$DAEMON_SCRIPT GET_PORT"));
+  if (empty($port) || !is_numeric($port)) { $port = "8081"; }
+
+  // 读取 config.yaml 中的 server.internalUrl / server.externalUrl
+  //   internalUrl: 内网直连地址，留空时默认 http://<当前访问主机>:<端口>（保持旧行为）
+  //   externalUrl: 外网（反代）地址，如 https://filebrowser.example.com:8888
+  // 判定规则：通过内网 IP / localhost 访问走 internalUrl，其余（域名/公网反代）走 externalUrl
+  $internalUrl = rtrim(getConfigYamlValue('internalUrl', ''), '/');
+  $externalUrl = rtrim(getConfigYamlValue('externalUrl', ''), '/');
+  if ($internalUrl === '') {
+      $internalUrl = "http://{$host}:{$port}";
+  }
+
+  // 内网地址段：127.0.0.0/8、10.0.0.0/8、172.16.0.0/12、192.168.0.0/16、
+  //             169.254.0.0/16、IPv6 ::1 / fe80:: / fc00::/7
+  $isLanHost = (bool) preg_match('/^(localhost|127\.|10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2[0-9]|3[01])\.|\[?::1$|\[?fe80:|\[?f[cd])/i', $host);
+
+  $fburl = ($isLanHost || $externalUrl === '') ? $internalUrl : $externalUrl;
+?>
+
+<style>
+  /* 1. 【核心修复】不仅隐藏标题，还要彻底粉碎底部状态栏 */
+  #main > .title, 
+  .main-area .title, 
+  .form_header, 
+  #breadcrumb,
+  #footer,        /* 阵列状态栏 ID */
+  .footer,        /* 阵列状态栏类名 */
+  .copyright      /* 版权信息 */ { 
+    display: none !important; 
+    height: 0 !important; 
+    margin: 0 !important; 
+    padding: 0 !important; 
+    overflow: hidden !important;
+    visibility: hidden !important;
+  }
+
+  /* 2. 强化锁定，确保外部没有任何滚动余地 */
+  html, body, #sb-site, .main-area, #main { 
+    height: 100% !important; 
+    margin: 0 !important; 
+    padding: 0 !important; 
+    overflow: hidden !important;
+    background: #000 !important;
+  }
+
+  /* 3. 核心视图容器,PC端/桌面模式：维持 130px 完美高度 */
+  .fb-full-view {
+    position: fixed;
+    left: 0;
+    right: 0;
+    z-index: 100;
+    background: #000;
+    top: 130px;
+    bottom: 0 !important; 
+  }
+
+  /* 4. 手机端原生适配,维持170px高度 */
+  @media screen and (max-width: 1024px) {
+    .fb-full-view {
+      top: 170px !important;
+      bottom: 0 !important;
+    }
+    #header { z-index: 9999 !important; }
+  }
+
+  .fb-full-iframe {
+    width: 100%;
+    height: 100%;
+    border: none;
+    display: block;
+  }
+</style>
+
+<div class="fb-full-view">
+  <iframe src="<?=$fburl?>?v=<?=time()?>" class="fb-full-iframe"></iframe>
+</div>
