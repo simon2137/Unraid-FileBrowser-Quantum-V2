@@ -19,6 +19,8 @@
 
 **FileBrowser Quantum** 是一款专为 Unraid 打造的高性能文件管理器插件，基于 [FileBrowser Quantum](https://github.com/gtsteffaniak/filebrowser)（原 FileBrowser 的活跃维护分支）v2 内核，为 Unraid 提供现代、流畅的文件管理体验。
 
+> 本仓库是 [insomnia417/Unraid-FileBrowser_Quantum-Plugins](https://github.com/insomnia417/Unraid-FileBrowser_Quantum-Plugins) 的 fork，在原作者项目基础上适配了 FileBrowser Quantum v2，并新增了内外网分流等功能。感谢原作者 insomnia417 的优秀工作。
+
 ### 特性
 
 - **Quantum v2 内核**：SQLite 数据库、索引加速搜索、图片/视频/办公文档预览、分享链接、WebDAV、多源管理、API Token 等，详见[上游文档](https://filebrowserquantum.com/en/docs/)
@@ -174,11 +176,15 @@ auth:
 
 ## 关于
 
+以下为原作者 insomnia417 的留笔：
+
 2025-2026 元旦跨年期间折腾 NAS 的产物。
 
 ## 鸣谢
 
 原项目：[FileBrowser Quantum](https://github.com/gtsteffaniak/filebrowser)
+
+插件原项目：[insomnia417/Unraid-FileBrowser_Quantum-Plugins](https://github.com/insomnia417/Unraid-FileBrowser_Quantum-Plugins)
 
 参考项目：[rclone-unraid](https://github.com/ich777/rclone-unraid)
 

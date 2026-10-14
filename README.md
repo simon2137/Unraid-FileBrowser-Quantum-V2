@@ -19,6 +19,8 @@
 
 **FileBrowser Quantum** is a high-performance file manager plugin designed specifically for Unraid, built on the [FileBrowser Quantum](https://github.com/gtsteffaniak/filebrowser) project (the actively maintained fork of the original FileBrowser) v2 core.
 
+> This repository is a fork of [insomnia417/Unraid-FileBrowser_Quantum-Plugins](https://github.com/insomnia417/Unraid-FileBrowser_Quantum-Plugins). On top of the original author's work, it adapts the plugin to FileBrowser Quantum v2 and adds the internal/external URL split, among other improvements. Many thanks to the original author, insomnia417.
+
 ### Features
 
 - **Quantum v2 core**: SQLite database, indexed search, image/video/office previews, share links, WebDAV, multi-source management, API tokens, and more — see the [upstream docs](https://filebrowserquantum.com/en/docs/)
@@ -177,10 +179,14 @@ The log window only shows the last 50 lines. The full log is at `/var/log/filebr
 
 ## About
 
+From the original author, insomnia417:
+
 A product of tinkering with a NAS over the 2025-2026 New Year holiday.
 
 ## THANKS
 
 [FileBrowser Quantum](https://github.com/gtsteffaniak/filebrowser)
+
+Original plugin: [insomnia417/Unraid-FileBrowser_Quantum-Plugins](https://github.com/insomnia417/Unraid-FileBrowser_Quantum-Plugins)
 
 [rclone-unraid](https://github.com/ich777/rclone-unraid)
