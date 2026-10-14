@@ -1,4 +1,4 @@
-# FileBrowser Quantum for Unraid
+# FileBrowser Quantum for Unraid V2
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/simon2137/Unraid-FileBrowser-Quantum-V2/master/img/logo.png" width="128" height="128" alt="Logo">
