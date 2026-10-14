@@ -8,8 +8,8 @@
   <!ENTITY launch "Settings/filebrowser_quantum">
   <!ENTITY description "FileBrowser Quantum for unRAID">
   <!ENTITY support "https://forums.unraid.net/topic/196447-filebrowser-quantum-plugin">
-  <!ENTITY pluginURL "https://raw.githubusercontent.com/insomnia417/Unraid-FileBrowser_Quantum-Plugins/&branch;/FileBrowser_Quantum.plg">
-  <!ENTITY bundleURL "https://raw.githubusercontent.com/insomnia417/Unraid-FileBrowser_Quantum-Plugins/refs/heads/&branch;/archive/filebrowser_quantum-&bundleversion;-x86_64.txz">
+  <!ENTITY pluginURL "https://raw.githubusercontent.com/simon2137/Unraid-FileBrowser-Quantum-V2/&branch;/FileBrowser_Quantum.plg">
+  <!ENTITY bundleURL "https://raw.githubusercontent.com/simon2137/Unraid-FileBrowser-Quantum-V2/refs/heads/&branch;/archive/filebrowser_quantum-&bundleversion;-x86_64.txz">
 ]>
 <PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="&pluginURL;" support="&support;">
 
@@ -170,7 +170,7 @@
         # 下载默认 config.yaml
         if [ ! -f "/boot/config/plugins/${NAME}/config.yaml" ]; then
             echo "正在下载默认配置..."
-            if ! curl -fsSL --connect-timeout 10 --retry 3 -o "/boot/config/plugins/${NAME}/config.yaml" "https://raw.githubusercontent.com/insomnia417/Unraid-FileBrowser_Quantum-Plugins/${BRANCH}/config.yaml"; then
+            if ! curl -fsSL --connect-timeout 10 --retry 3 -o "/boot/config/plugins/${NAME}/config.yaml" "https://raw.githubusercontent.com/simon2137/Unraid-FileBrowser-Quantum-V2/${BRANCH}/config.yaml"; then
                 echo "下载失败，正在生成本地默认配置..."
 cat <<EOF > "/boot/config/plugins/${NAME}/config.yaml"
 http:
