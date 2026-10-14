@@ -177,16 +177,10 @@ The log window only shows the last 50 lines. The full log is at `/var/log/filebr
 
 ---
 
-## About
-
-From the original author, insomnia417:
-
-A product of tinkering with a NAS over the 2025-2026 New Year holiday.
 
 ## THANKS
 
-[FileBrowser Quantum](https://github.com/gtsteffaniak/filebrowser)
+Original Project: [FileBrowser Quantum](https://github.com/gtsteffaniak/filebrowser)
 
 Original plugin: [insomnia417/Unraid-FileBrowser_Quantum-Plugins](https://github.com/insomnia417/Unraid-FileBrowser_Quantum-Plugins)
 
-[rclone-unraid](https://github.com/ich777/rclone-unraid)
