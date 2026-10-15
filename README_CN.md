@@ -61,7 +61,7 @@ filebrowser_quantum user set admin --password '你的新密码' --admin
 **查看初始密码**（全新安装后的第一次启动期间）：
 
 ```bash
-grep -i "password" /var/log/filebrowser_quantum.log | head -5
+grep -i "password" /var/log/filebrowser_quantum.log | head -50
 ```
 
 > 注意：插件设置页的"实时日志"只显示最后 50 行，启动早期的信息请在终端查看完整日志文件。
