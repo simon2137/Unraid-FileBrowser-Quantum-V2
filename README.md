@@ -59,7 +59,7 @@ filebrowser_quantum user set admin --password 'your-new-password' --admin
 **Finding the initial password** (after a fresh install, on the first startup):
 
 ```bash
-grep -i "password" /var/log/filebrowser_quantum.log | head -5
+grep -i "password" /var/log/filebrowser_quantum.log | head -50
 ```
 
 > Note: the live-log window on the settings page only shows the last 50 lines. For startup-time messages, check the full log file from a terminal.
