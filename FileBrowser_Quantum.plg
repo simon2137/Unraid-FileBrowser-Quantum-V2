@@ -1,8 +1,8 @@
 <?xml version='1.0' standalone='yes'?>
 <!DOCTYPE PLUGIN [
   <!ENTITY branch "main">
-  <!ENTITY version "2026.10.15.1">
-  <!ENTITY bundleversion "2026.10.15.1">
+  <!ENTITY version "2026.10.16.1">
+  <!ENTITY bundleversion "2026.10.16.1">
   <!ENTITY author "insomnia417">
   <!ENTITY name "filebrowser_quantum">
   <!ENTITY launch "Settings/filebrowser_quantum">
@@ -16,6 +16,10 @@
 <CHANGES>
 ### &name;
 #### 🆕 最新更新 (v&version;)
+- **修复内网判定误伤外网域名**：`filebrowser.xxx.com`、`cloud.xxx.com`、`dns.xxx.com` 这类以 `f`/`c`/`d` 开头的域名，会被旧正则（IPv6 `fc00::/7` 前缀缺少边界约束）当成内网主机，导致外网访问时错误地使用 `internalUrl`（私网地址不可达 + 混合内容拦截），或退化成「外网域名 + 内网端口」。现在先判定是否为 IP 字面量再做网段匹配，域名只按主机名规则判定。
+- **修复设置页 OPEN WEBUI 按钮**：该按钮此前由前端硬编码 `http://` + 当前页面 hostname + FileBrowser 内网端口拼地址，从外网点击会打开「外网域名 + 内网端口」并被浏览器按混合内容拦截。现在改用后端按内外网分流算好的地址（与 FB 标签页同一套逻辑，状态接口新增 `nav_url` 字段），并加了联动测试防止回归。
+
+#### 📜 v2026.10.15.1
 - **修复 FB/FQ 标签页内外网分流**：反向代理外网域名访问时不再出现「外网域名 + 内网端口」（如 `http://域名:8081`）。
   - 协议改为按 `X-Forwarded-Proto` / `HTTPS` / `SERVER_PORT` 识别，不再硬编码 `http://`，彻底避免 https 页面嵌入 http iframe 被浏览器按混合内容拦截。
   - 主机与端口改为按 `X-Forwarded-Host` / `X-Forwarded-Port` 识别（回退 `HTTP_HOST`），反代非默认端口会被保留；`externalUrl` 留空时也能自动推导出正确的外网地址，无需手填。

@@ -200,13 +200,21 @@ function getRequestPort() {
  */
 function isLanHost($host) {
     if ($host === '') return false;
-    if (preg_match(
-        '/^(localhost|127\.|10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2[0-9]|3[01])\.|\[?::1\]?$|\[?fe80:|\[?f[cd])/i',
-        $host
-    )) {
-        return true;
+
+    // 先确认是不是 IP 字面量，再做网段前缀匹配。
+    // 旧实现用一条大正则，其中「\[?[fcd]」没有收尾约束（本意是 IPv6 唯一的 fc00::/7），
+    // 于是 filebrowser.example.com / cloud.example.com / dns.example.com 这类
+    // 以 f/c/d 开头的域名会被误判成内网，进而错误地使用 internalUrl。
+    $ip = strtolower(trim($host, '[]'));
+    if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+        return (bool)preg_match('/^(127\.|10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2[0-9]|3[01])\.)/', $ip);
     }
+    if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6)) {
+        return (bool)preg_match('/^(::1$|fe80:|f[cd])/', $ip);
+    }
+
     $name = strtolower(trim($host, '[]'));
+    if ($name === 'localhost') return true;
     if (strpos($name, '.') === false) return true;               // 单标签主机名：nas / tower / unraid
     $local = strtolower((string)@gethostname());
     if ($local !== '' && $name === $local) return true;          // Unraid 本机名（可能带 .local 后缀）

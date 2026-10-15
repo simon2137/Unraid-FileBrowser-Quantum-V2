@@ -80,7 +80,8 @@ def main():
     with open(out, "rb") as fh:
         digest = hashlib.md5(fh.read()).hexdigest()
     with open(out + ".md5", "w", encoding="ascii", newline="") as fh:
-        fh.write(digest)
+        # 与 CI（md5sum 输出）保持一致：摘要 + 换行
+        fh.write(digest + "\n")
 
     print(f"{os.path.relpath(out, REPO)}  {os.path.getsize(out)} bytes")
     print(f"md5 {digest}")

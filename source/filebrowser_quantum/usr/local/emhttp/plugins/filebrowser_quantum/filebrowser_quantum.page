@@ -42,7 +42,7 @@ var validateTimer = null;
  * Unified UI state update function
  * Added 'verifying' state for better UX during saves
  */
-function updateServiceUI(isRunning, port, verifying = false) {
+function updateServiceUI(isRunning, port, verifying = false, navUrl = "") {
     let color = isRunning ? "#4caf50" : "#f44336";
     let text = isRunning ? "● RUNNING" : "○ STOPPED";
     
@@ -62,10 +62,14 @@ function updateServiceUI(isRunning, port, verifying = false) {
     const applyBtn = $("input[value='APPLY']");
     $(".localURL").remove();
     
-    if (isRunning && !verifying) {
-        $('<input type="button" class="localURL" value="OPEN WEBUI" />')
-            .attr("onclick", "window.open('http://' + window.location.hostname + ':" + port + "', '_blank')")
-            .insertAfter(applyBtn);
+    if (isRunning && !verifying && navUrl) {
+        // 地址由后端 getFileBrowserNav() 算好（与 FB 标签页同一套优先级：内网走
+        // internalUrl、外网走 externalUrl，否则按反代头推导协议/域名/端口）。
+        // 旧实现硬编码 http 协议 + 页面 hostname + 内网端口来拼地址，
+        // 从外网访问时会得到「外网域名 + 内网端口」，还会被混合内容策略拦截。
+        const openBtn = $('<input type="button" class="localURL" value="OPEN WEBUI" />');
+        openBtn.on("click", function () { window.open(navUrl, "_blank"); });
+        openBtn.insertAfter(applyBtn);
     }
 }
 
@@ -189,7 +193,7 @@ function startPolling(form, applyBtn) {
                     applyBtn.val('APPLY').prop('disabled', false).removeClass('submit');
                     $('input[name="webui_radio"][value="' + newState + '"]').prop('checked', true);
                     
-                    updateServiceUI(data.running, data.port);
+                    updateServiceUI(data.running, data.port, false, data.nav_url);
                     
                     // Final Sync: Ensure APPLY button color matches reality
                     toggleService(newState);
@@ -383,7 +387,7 @@ function updateStatusViaAPI() {
     $.getJSON("/plugins/filebrowser_quantum/api_config.php?action=get_status&t=" + new Date().getTime(), function(response) {
         if (response.success) {
             const data = response.data;
-            updateServiceUI(data.running, data.port);
+            updateServiceUI(data.running, data.port, false, data.nav_url);
         }
     });
 }
@@ -426,7 +430,7 @@ $(document).ready(function() {
         $('input[name="webui_radio"][value="' + data.enabled + '"]').prop('checked', true);
         $('input[name="branch_radio"][value="' + data.branch + '"]').prop('checked', true);
         
-        updateServiceUI(data.running, data.port);
+        updateServiceUI(data.running, data.port, false, data.nav_url);
         toggleService(data.enabled);
     });
 });

@@ -151,6 +151,55 @@ $cases[] = ['H4 172.32 不属于内网 → 外网分支',
     $yaml([]),
     ['url' => 'https://172.32.3.7', 'isLan' => 'no']];
 
+// ── 回归：域名首字符 f/c/d 曾被误判为内网 ────────────────────────────────────
+// 旧 isLanHost() 的正则里有未锚定的「\[?[fcd]」（本意是 IPv6 fc00::/7），
+// 于是 filebrowser.002049.xyz 这类外网域名被判成内网，外网访问时错误地使用
+// internalUrl（私网地址 + 混合内容拦截），或回退成「外网域名 + 内网端口」。
+$cases[] = ['REG1 外网域名以 f 开头 + externalUrl/internalUrl 都已配置 → 走 externalUrl',
+    ['HTTP_HOST' => 'filebrowser.example.com', 'HTTP_X_FORWARDED_PROTO' => 'https', 'HTTP_X_FORWARDED_HOST' => 'filebrowser.example.com'],
+    $yaml(['port' => '8098', 'internalUrl' => 'http://192.168.31.230:8098', 'externalUrl' => 'https://filebrowser.example.com:8888']),
+    ['url' => 'https://filebrowser.example.com:8888', 'source' => 'config:http.externalUrl', 'isLan' => 'no', 'mixed' => 'no']];
+
+$cases[] = ['REG2 外网域名以 f 开头 + externalUrl 留空 → 按反代头推导，不得落到内网端口',
+    ['HTTP_HOST' => 'filebrowser.example.com', 'HTTP_X_FORWARDED_PROTO' => 'https', 'HTTP_X_FORWARDED_HOST' => 'filebrowser.example.com'],
+    $yaml(['port' => '8098']),
+    ['url' => 'https://filebrowser.example.com', 'source' => 'auto:request+proxy', 'isLan' => 'no', 'mixed' => 'no']];
+
+$cases[] = ['REG3 外网域名以 c 开头（cloud.example.com）',
+    ['HTTP_HOST' => 'cloud.example.com', 'HTTP_X_FORWARDED_PROTO' => 'https'],
+    $yaml([]),
+    ['url' => 'https://cloud.example.com', 'isLan' => 'no']];
+
+$cases[] = ['REG4 外网域名以 d 开头（dns.example.com）',
+    ['HTTP_HOST' => 'dns.example.com', 'HTTP_X_FORWARDED_PROTO' => 'https'],
+    $yaml([]),
+    ['url' => 'https://dns.example.com', 'isLan' => 'no']];
+
+$cases[] = ['REG5 以 10. 开头的域名（10.example.com）不是内网',
+    ['HTTP_HOST' => '10.example.com', 'HTTP_X_FORWARDED_PROTO' => 'https'],
+    $yaml([]),
+    ['url' => 'https://10.example.com', 'isLan' => 'no']];
+
+$cases[] = ['REG6 IPv6 ULA fd00::/8 仍判为内网',
+    ['HTTP_HOST' => '[fd00::1]:8098'],
+    $yaml([]),
+    ['url' => 'http://[fd00::1]:8081', 'isLan' => 'yes']];
+
+$cases[] = ['REG7 IPv6 链路本地 fe80:: 仍判为内网',
+    ['HTTP_HOST' => '[fe80::1]'],
+    $yaml([]),
+    ['url' => 'http://[fe80::1]:8081', 'isLan' => 'yes']];
+
+$cases[] = ['REG8 IPv6 回环 ::1 仍判为内网',
+    ['HTTP_HOST' => '[::1]:8081'],
+    $yaml([]),
+    ['url' => 'http://[::1]:8081', 'isLan' => 'yes']];
+
+$cases[] = ['REG9 反代头为内网 IP、HTTP_HOST 为外网域名 → 内网分支用 internalUrl',
+    ['HTTP_HOST' => 'filebrowser.example.com', 'HTTP_X_FORWARDED_PROTO' => 'https', 'HTTP_X_FORWARDED_HOST' => '192.168.31.230:8098'],
+    $yaml(['port' => '8098', 'internalUrl' => 'http://192.168.31.230:8098', 'externalUrl' => 'https://filebrowser.example.com:8888']),
+    ['url' => 'http://192.168.31.230:8098', 'source' => 'config:http.internalUrl', 'isLan' => 'yes']];
+
 // ── 反代细节 ────────────────────────────────────────────────────────────────
 $cases[] = ['I 外网反代 / X-Forwarded-Host 与 HTTP_HOST 不同（nginx 常见写法）',
     ['HTTP_HOST' => '192.168.1.10:8081', 'HTTP_X_FORWARDED_PROTO' => 'https', 'HTTP_X_FORWARDED_HOST' => 'fb.example.com'],
@@ -228,6 +277,30 @@ foreach ($cases as $c) {
     $fail += runCase($c[0], $c[1], (string)$c[2], $c[3]);
 }
 $GLOBALS['CONFIG_YAML'] = $cfgDummy;
+
+// ── 联动检查：设置页 OPEN WEBUI 按钮必须使用后端算好的地址 ────────────────────
+// 旧 bug：前端自己拼 'http://' + window.location.hostname + ':' + 内网端口，
+// 外网访问时得到「外网域名 + 内网端口」，并被混合内容策略拦截。
+$plgDir  = realpath(__DIR__ . '/../source/filebrowser_quantum/usr/local/emhttp/plugins/filebrowser_quantum');
+$apiSrc  = (string)@file_get_contents($plgDir . '/api_config.php');
+$pageSrc = (string)@file_get_contents($plgDir . '/filebrowser_quantum.page');
+
+foreach ([
+    'api_config.php 在 get_status 中返回 nav_url'          => strpos($apiSrc, "'nav_url' => \$nav['url']") !== false,
+    'api_config.php 调用 getFileBrowserNav()'              => strpos($apiSrc, 'getFileBrowserNav()') !== false,
+    '设置页不再用 window.location.hostname 拼地址'          => strpos($pageSrc, 'window.location.hostname') === false,
+    '设置页把 nav_url 传给 updateServiceUI（3 处调用点）'   => substr_count($pageSrc, 'data.nav_url') === 3,
+    '设置页没有漏掉 nav_url 的 get_status 调用点'           => substr_count($pageSrc, 'updateServiceUI(data.running, data.port);') === 0,
+    'FB 标签页与设置页共用 getFileBrowserNav()'             => strpos((string)@file_get_contents($plgDir . '/FB.page'), 'getFileBrowserNav()') !== false,
+] as $label => $ok) {
+    $total++;
+    if ($ok) {
+        printf("[PASS] %s\n", $label);
+    } else {
+        $fail++;
+        printf("[FAIL] %s\n", $label);
+    }
+}
 
 echo "\n==== {$total} cases, " . ($total - $fail) . " passed, {$fail} failed ====\n";
 exit($fail > 0 ? 1 : 0);

@@ -93,11 +93,17 @@ if ($action == 'get_status') {
     $branch = getSettingValue('filebrowser_BRANCH', 'stable');
     $logfile = getLogPath($CONFIG_YAML);
 
+    // 与 FB 标签页共用同一套内外网分流逻辑：OPEN WEBUI 按钮直接用它算好的地址，
+    // 不再由前端拼 'http://' + window.location.hostname + ':' + 内网端口
+    $nav = getFileBrowserNav();
+
     sendResponse(true, [
         'enabled' => $is_enabled,
         'running' => $running,
         'ready' => $ready,
         'port' => $port,
+        'nav_url' => $nav['url'],
+        'nav_source' => $nav['source'],
         'branch' => $branch == 'beta' ? '2' : '1',
         'local_version' => trim($local_ver),
         'latest_version' => trim($latest_ver),
